@@ -282,7 +282,7 @@ class TimestampTest < ActiveRecord::TestCase
 
     pet = klass.first
     owner = pet.owner
-    owner.update_columns(happy_at: 3.days.ago)
+    owner.update_columns(happy_at: 3.days.ago.round)
     previously_owner_updated_at = owner.updated_at
 
     travel(1.second) do
@@ -302,10 +302,43 @@ class TimestampTest < ActiveRecord::TestCase
     toy = klass.first
     pet = toy.pet
     owner = pet.owner
-    time = 3.days.ago
+    time = 3.days.ago.round
 
     owner.update_columns(updated_at: time)
     toy.touch
+    owner.reload
+
+    assert_not_equal time, owner.updated_at
+  end
+
+  class SpecialOwner < ActiveRecord::Base
+    after_commit { true } 
+    self.table_name = "owners"
+    has_many :pets, -> { order "pets.name desc" }, class_name: 'TimestampTest::SpecialPet', foreign_key: 'owner_id'
+    accepts_nested_attributes_for :pets
+  end
+
+  class SpecialPet < ActiveRecord::Base
+    self.table_name = "pets"
+    belongs_to :owner, class_name: 'TimestampTest::SpecialOwner', foreign_key: 'owner_id', touch: true
+    has_many :toys, class_name: 'TimestampTest::SpecialToy', foreign_key: 'pet_id'
+    accepts_nested_attributes_for :toys
+  end
+
+  class SpecialToy < ActiveRecord::Base
+    self.table_name = "toys"
+    belongs_to :pet, class_name: 'TimestampTest::SpecialPet', foreign_key: 'pet_id', touch: true
+  end
+
+  def test_updating_a_record_through_grandparent_touches_parent_record_and_grandparent_record
+    toy = SpecialToy.first
+    pet = toy.pet
+    owner = pet.owner
+    time = 3.days.ago.round
+
+    owner.update_columns(updated_at: time)
+    owner.reload
+    owner.update pets_attributes: { id: pet.id, toys_attributes: { id: toy.id, name: "Chewed-up #{toy.name}" } }
     owner.reload
 
     assert_not_equal time, owner.updated_at
@@ -322,7 +355,7 @@ class TimestampTest < ActiveRecord::TestCase
     end
 
     toy = klass.first
-    time = 3.days.ago
+    time = 3.days.ago.round
     toy.update_columns(updated_at: time)
 
     wheel = wheel_klass.new
